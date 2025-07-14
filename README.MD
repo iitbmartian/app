@@ -2,7 +2,7 @@
 
 ```bash
 git clone https://github.com/iitbmartian/app.git
-cd ap
+cd app
 
 python -m venv venv
 source venv/bin/activate
