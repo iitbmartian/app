@@ -28,7 +28,6 @@ class DataMonitorSubscriber:
         self.subscriber = None
         self.message_count = 0
         self.last_message_time = None
-        # Store reference to cleanup on close
         self.destroyed = False
         self.create_subscriber()
     
@@ -107,7 +106,6 @@ class DataMonitorSubscriber:
                 
         except Exception as e:
             print(f"Error creating subscriber for {self.topic_name}: {str(e)}")
-            # Set subscriber to None to indicate failure
             self.subscriber = None
             return False
 
@@ -122,7 +120,7 @@ class DataMonitorSubscriber:
         """Clean up the subscriber"""
         if self.subscriber:
             try:
-                self.subscriber.destroy()  # Change from self.node.destroy_subscription()
+                self.subscriber.destroy()  
                 print(f"Destroyed subscriber for {self.topic_name}")
             except Exception as e:
                 print(f"Error destroying subscriber for {self.topic_name}: {str(e)}")
@@ -135,19 +133,19 @@ class MonitorTab(QWidget):
         self.main_window = main_window
         self.available_topics = []
         self.connected_topic = None
-        self.camera_widget = CameraWidget(0)  # Use camera ID 0 for monitor
+        self.camera_widget = CameraWidget(0)  
         self.linear_speed = 0.5
         self.angular_speed = 1.0
         self.publish_timer = QTimer()
         self.current_twist = (0.0, 0.0)
         self.twist_publisher = None
         self.twist_stamped_publisher = None
-        self.current_message_type = "Twist"  # Default to Twist
+        self.current_message_type = "TwistStamped"  
         
         # Data monitor specific attributes
-        self.data_subscribers = {}  # topic_name -> DataMonitorSubscriber
-        self.topic_data = {}  # topic_name -> latest message data
-        self.topic_stats = {}  # topic_name -> statistics
+        self.data_subscribers = {}  
+        self.topic_data = {} 
+        self.topic_stats = {} 
         
         self.setup_ui()
         
@@ -261,7 +259,7 @@ class MonitorTab(QWidget):
         self.control_type_combo = QComboBox()
         self.control_type_combo.addItem("Twist", "Twist")
         self.control_type_combo.addItem("TwistStamped", "TwistStamped")
-        self.control_type_combo.setCurrentIndex(0)  # Default to Twist
+        self.control_type_combo.setCurrentIndex(1)  
         self.control_type_combo.currentTextChanged.connect(self.on_message_type_changed)
         control_type_layout.addWidget(self.control_type_combo)
 
@@ -294,7 +292,6 @@ class MonitorTab(QWidget):
         self.monitor_topic_combo.setEditable(True)
         self.monitor_topic_combo.setPlaceholderText("Select or enter topic name")
         self.monitor_topic_combo.setMinimumWidth(200)
-        # ADD THIS LINE FOR AUTO-COMPLETION:
         self.monitor_topic_combo.currentTextChanged.connect(self.auto_detect_message_type)
         topic_layout.addWidget(self.monitor_topic_combo)
         
@@ -325,11 +322,9 @@ class MonitorTab(QWidget):
         self.monitor_disconnect_btn.clicked.connect(self.stop_topic_monitoring)
         self.monitor_disconnect_btn.setEnabled(False)
         topic_layout.addWidget(self.monitor_disconnect_btn)
-        
         self.clear_data_btn = QPushButton("Clear Data")
         self.clear_data_btn.clicked.connect(self.clear_monitor_data)
         topic_layout.addWidget(self.clear_data_btn)
-        
         control_layout.addLayout(topic_layout)
         layout.addWidget(control_group)
         
@@ -346,8 +341,7 @@ class MonitorTab(QWidget):
         # Data display area
         data_group = QGroupBox("Message Data")
         data_layout = QVBoxLayout(data_group)
-        
-        # Create splitter for different views
+
         data_splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # Active topics list
@@ -380,14 +374,13 @@ class MonitorTab(QWidget):
         # Update timer for UI refresh
         self.monitor_update_timer = QTimer()
         self.monitor_update_timer.timeout.connect(self.update_monitor_display)
-        self.monitor_update_timer.start(1000)  # Update every second
+        self.monitor_update_timer.start(1000)  
 
     def auto_detect_message_type(self, topic_name):
         """Auto-detect message type based on topic name patterns"""
         if not topic_name.strip():
             return
         
-        # Common topic patterns and their likely message types
         patterns = {
             'battery': 'sensor_msgs/BatteryState',
             'diagnostics': 'diagnostic_msgs/DiagnosticArray',
@@ -407,10 +400,8 @@ class MonitorTab(QWidget):
         
         topic_lower = topic_name.lower()
         
-        # Check patterns
         for pattern, msg_type in patterns.items():
             if pattern in topic_lower:
-                # Find the message type in the combo box
                 index = self.monitor_msg_type_combo.findText(msg_type)
                 if index >= 0:
                     self.monitor_msg_type_combo.setCurrentIndex(index)
@@ -494,7 +485,6 @@ class MonitorTab(QWidget):
         topic_name = self.monitor_topic_combo.currentText().strip()
         
         if topic_name and topic_name in self.data_subscribers:
-            # Stop monitoring specific topic
             self.data_subscribers[topic_name].destroy()
             del self.data_subscribers[topic_name]
             
@@ -555,15 +545,11 @@ class MonitorTab(QWidget):
             'count': message_count
         })
         
-        # Limit history to last 100 messages
         if len(self.topic_data[topic_name]['message_history']) > 100:
             self.topic_data[topic_name]['message_history'] = self.topic_data[topic_name]['message_history'][-100:]
-        
-        # Update statistics
         self.topic_stats[topic_name]['message_count'] = message_count
         self.topic_stats[topic_name]['last_message_time'] = timestamp
         
-        # Calculate frequency
         start_time = self.topic_stats[topic_name]['start_time']
         elapsed_time = (timestamp - start_time).total_seconds()
         if elapsed_time > 0:
@@ -577,7 +563,6 @@ class MonitorTab(QWidget):
         self.update_active_topics_list()
         
         if self.data_subscribers:
-            # Update stats label with summary
             total_messages = sum(stats['message_count'] for stats in self.topic_stats.values())
             active_topics = len(self.data_subscribers)
             
@@ -609,7 +594,6 @@ class MonitorTab(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, topic_name)
             self.active_topics_list.addTopLevelItem(item)
             
-            # Restore selection if this was the previously selected topic
             if current_selection == topic_name:
                 self.active_topics_list.setCurrentItem(item)
                 self.display_topic_messages(topic_name)
@@ -646,7 +630,6 @@ class MonitorTab(QWidget):
         # Clear and update display
         self.message_details.clear()
         
-        # Header
         self.message_details.append(f"=== {topic_name} ({msg_type}) ===\n")
         
         # Latest message
@@ -655,7 +638,6 @@ class MonitorTab(QWidget):
             self.message_details.append(self.format_message(latest_msg))
             self.message_details.append("")
         
-        # Recent messages
         if history:
             self.message_details.append("Recent Messages:")
             # Show last 10 messages
@@ -912,7 +894,7 @@ class MonitorTab(QWidget):
                     print(f"Published TwistStamped to {topic}: linear={linear:.2f}, angular={angular:.2f}")
                 else:
                     print(f"TwistStamped publisher not available for topic: {topic}")
-            else:  # Twist
+            else: 
                 if self.twist_publisher:
                     message = self.create_twist_message(linear, angular)
                     self.twist_publisher.publish(message)

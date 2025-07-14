@@ -16,19 +16,16 @@ from pointcloud_tab import PointCloudTab
 from publisher_tab import PublisherTab
 from monitor_tab import MonitorTab
 from style import style
+from ros_utils import GenericSubscriber
 
 class MultiTabROS2Viewer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ROS2 Multi-Tab Viewer & Publisher")
-        
-        # Apply modern styling
+        self.setWindowTitle("ROS2 Multi-Tab Viewer & Publisher")     
         style()        
-        # Set up fullscreen window with proper sizing
         self.setup_fullscreen()
         self.monitor_image_subscriber = None
         self.monitor_subscriber_thread = None
-        # ROS2 related
         self.node = None
         self.ros_thread = None
         self.subscribers = {}
@@ -36,46 +33,36 @@ class MultiTabROS2Viewer(QMainWindow):
         self.pointcloud_subscribers = {}  # New dedicated pointcloud subscribers
         self.signals = MessageSignals()
 
-        # Setup UI
         self.setup_ui()
 
-        # Initialize ROS2
         self.init_ros2()
 
-        # Timer to spin ROS2 node
         self.ros_timer = QTimer()
         self.ros_timer.timeout.connect(self.spin_ros)
-        self.ros_timer.start(10)  # 100Hz
+        self.ros_timer.start(10)  
 
 
 
     def setup_fullscreen(self):
         """Set up the window to be fullscreen but not larger than screen"""
-        # Get the primary screen
         screen = QApplication.primaryScreen()
         if screen:
             screen_geometry = screen.availableGeometry()
             print(f"Screen available geometry: {screen_geometry}")
             print(f"Screen size: {screen_geometry.width()}x{screen_geometry.height()}")
-            
-            # Set a fixed size that's slightly smaller than screen to ensure it fits
-            # Leave some margin for window decorations and system UI
             margin = 50
             width = screen_geometry.width() - margin
             height = screen_geometry.height() - margin
             
-            # Position window at top-left with small offset
             x = screen_geometry.x() + margin // 2
             y = screen_geometry.y() + margin // 2
             
             print(f"Setting window to: {width}x{height} at position ({x}, {y})")
             
-            # Force set the geometry and disable resizing to prevent issues
             self.setGeometry(x, y, width, height)
-            self.setFixedSize(width, height)  # This prevents resizing
+            self.setFixedSize(width, height)  
             
         else:
-            # Fallback if screen info is not available
             print("Could not detect screen geometry, using fallback size")
             self.setGeometry(50, 50, 1500, 900)
             self.setFixedSize(1500, 900)
@@ -117,7 +104,7 @@ class MultiTabROS2Viewer(QMainWindow):
         # Right side: Available topics (proportional width for fullscreen)
         right_widget = QWidget()
         right_widget.setMinimumWidth(400)
-        right_widget.setMaximumWidth(600)  # Slightly wider for fullscreen
+        right_widget.setMaximumWidth(600)  
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
@@ -130,14 +117,14 @@ class MultiTabROS2Viewer(QMainWindow):
         
         # Refresh button at the top for better visibility
         refresh_btn = QPushButton("🔄  Refresh Topics")
-        refresh_btn.setObjectName("refreshButton")  # For special styling
+        refresh_btn.setObjectName("refreshButton")  
         refresh_btn.clicked.connect(self.refresh_topics)
         refresh_btn.setToolTip("Refresh the list of available ROS2 topics")
         topics_layout.addWidget(refresh_btn)
         
         self.topics_text = QTextEdit()
         self.topics_text.setReadOnly(True)
-        self.topics_text.setMinimumHeight(400)  # Ensure minimum height
+        self.topics_text.setMinimumHeight(400)  
         self.topics_text.setToolTip("List of available ROS2 topics organized by message type")
         topics_layout.addWidget(self.topics_text)
         
@@ -150,12 +137,12 @@ class MultiTabROS2Viewer(QMainWindow):
         # Set initial splitter sizes based on actual window width
         # Get the current window width after setup
         current_width = self.width()
-        left_width = int(current_width * 0.75)  # 75% for left panel
-        right_width = int(current_width * 0.25)  # 25% for right panel
+        left_width = int(current_width * 0.75)  
+        right_width = int(current_width * 0.25)  
         
         main_splitter.setSizes([left_width, right_width])
-        main_splitter.setStretchFactor(0, 1)  # Left side can stretch
-        main_splitter.setStretchFactor(1, 0)  # Right side fixed
+        main_splitter.setStretchFactor(0, 1)  
+        main_splitter.setStretchFactor(1, 0) 
         
         # Enhanced status bar
         self.statusBar().showMessage("🚀 ROS2 Multi-Tab Viewer Ready")
@@ -177,17 +164,14 @@ class MultiTabROS2Viewer(QMainWindow):
         if self.node:
             rclpy.spin_once(self.node, timeout_sec=0.001)
 
-        # Spin image subscribers
         for subscriber in self.image_subscribers.values():
             if subscriber:
                 rclpy.spin_once(subscriber, timeout_sec=0.001)
         
-        # Spin pointcloud subscribers
         for subscriber in self.pointcloud_subscribers.values():
             if subscriber:
                 rclpy.spin_once(subscriber, timeout_sec=0.001)
                 
-        # Spin generic subscribers
         for subscriber in self.subscribers.values():
             if subscriber:
                 rclpy.spin_once(subscriber, timeout_sec=0.001)
@@ -244,18 +228,17 @@ class MultiTabROS2Viewer(QMainWindow):
             
             # Update status bar with topic count and visual indicator
             total_topics = len(set(topic for topics in topics_by_type.values() for topic in topics))
-            self.statusBar().showMessage(f"🚀 ROS2 Multi-Tab Viewer Ready • {total_topics} topics available • Last updated: {self.get_current_time()}")
+            self.statusBar().showMessage(f"ROS2 Multi-Tab Viewer Ready • {total_topics} topics available • Last updated: {self.get_current_time()}")
 
         except Exception as e:
-            self.topics_text.setText(f"❌ Error getting topics: {str(e)}")
-            self.statusBar().showMessage("❌ Error refreshing topics")
+            self.topics_text.setText(f"Error getting topics: {str(e)}")
+            self.statusBar().showMessage("Error refreshing topics")
 
     def get_current_time(self):
         """Get current time for status updates"""
         from datetime import datetime
         return datetime.now().strftime("%H:%M:%S")
 
-    # ... (rest of the methods remain the same)
     def connect_image_camera(self, camera_id):
         """Connect to selected image topic for specific camera"""
         return self.image_tab.connect_camera(camera_id, self.image_subscribers, self.on_image_received)
@@ -287,7 +270,7 @@ class MultiTabROS2Viewer(QMainWindow):
             subscriber = PointCloudSubscriber(
                 topic_name, 
                 self.on_pointcloud_received,
-                sanitized_id  # Use sanitized name instead of raw topic name
+                sanitized_id 
             )
             
             self.pointcloud_subscribers[topic_name] = subscriber
@@ -308,8 +291,6 @@ class MultiTabROS2Viewer(QMainWindow):
         return False
 
     def connect_generic_topic(self, topic_name, msg_type, callback_type):
-        """Connect to a generic ROS topic"""
-        from ros_utils import GenericSubscriber
         
         try:
             # For pointcloud topics, use the dedicated subscriber
@@ -362,21 +343,16 @@ class MultiTabROS2Viewer(QMainWindow):
         try:
             # Convert message to string representation
             if hasattr(msg, 'data'):
-                # Simple data field
                 msg_str = str(msg.data)
             elif hasattr(msg, 'linear') and hasattr(msg, 'angular'):
-                # Twist message
                 msg_str = f"linear: [{msg.linear.x:.2f}, {msg.linear.y:.2f}, {msg.linear.z:.2f}], angular: [{msg.angular.x:.2f}, {msg.angular.y:.2f}, {msg.angular.z:.2f}]"
             elif hasattr(msg, 'pose') and hasattr(msg, 'twist'):
-                # Odometry message
                 pos = msg.pose.pose.position
                 msg_str = f"pos: [{pos.x:.2f}, {pos.y:.2f}, {pos.z:.2f}]"
             elif hasattr(msg, 'ranges'):
-                # LaserScan message
                 ranges = msg.ranges
                 msg_str = f"ranges: {len(ranges)} points, min: {min(ranges):.2f}, max: {max(ranges):.2f}"
             else:
-                # Generic fallback
                 msg_str = str(msg)[:200]  # Truncate long messages
             
             self.signals.generic_received.emit(msg_str, topic_name, msg_type)
@@ -387,44 +363,35 @@ class MultiTabROS2Viewer(QMainWindow):
     def connect_monitor_image_camera(self, topic_name, is_compressed=None):
         """Connect monitor tab to an image topic - handles both regular and compressed images"""
         try:
-            # Disconnect existing subscriber if any
             if hasattr(self, 'monitor_image_subscriber') and self.monitor_image_subscriber:
                 self.monitor_image_subscriber.destroy_node()
                 self.monitor_image_subscriber = None
             
-            # Stop existing thread if any
             if hasattr(self, 'monitor_subscriber_thread') and self.monitor_subscriber_thread:
                 self.monitor_subscriber_thread = None
             
-            # If compression flag is not provided, determine it from the topic
             if is_compressed is None:
                 topic_type = determine_image_topic_type(self.node, topic_name)
                 is_compressed = (topic_type == 'compressed')
             
-            # Create a wrapper function that properly handles the signal
             def monitor_image_callback(cv_image, camera_id=999):
-                # Emit the standard image signal for monitor tab (camera ID 999)
                 self.signals.image_received.emit(cv_image, 999)
             
-            # Create subscriber based on message type
             if is_compressed:
-                # For compressed images, use the CompressedImageSubscriber
                 self.monitor_image_subscriber = CompressedImageSubscriber(
                     topic_name, 
                     monitor_image_callback,
-                    999  # Use camera ID 999 for monitor
+                    999  
                 )
                 print(f"Created CompressedImageSubscriber for {topic_name}")
             else:
-                # For regular images, use the standard ImageSubscriber
                 self.monitor_image_subscriber = ImageSubscriber(
                     topic_name, 
                     monitor_image_callback,
-                    999  # Use camera ID 999 for monitor
+                    999  
                 )
                 print(f"Created ImageSubscriber for {topic_name}")
             
-            # Create a dedicated spinning thread for the monitor subscriber
             def spin_monitor():
                 print(f"Starting monitor spinning thread for {topic_name}")
                 while (hasattr(self, 'monitor_image_subscriber') and 
@@ -436,7 +403,6 @@ class MultiTabROS2Viewer(QMainWindow):
                         break
                 print(f"Monitor spinning thread stopped for {topic_name}")
             
-            # Start the spinning thread
             self.monitor_subscriber_thread = threading.Thread(target=spin_monitor, daemon=True)
             self.monitor_subscriber_thread.start()
             
@@ -471,21 +437,16 @@ class MultiTabROS2Viewer(QMainWindow):
         if hasattr(self, 'publisher_tab'):
             self.publisher_tab.cleanup()
 
-        # Clean up monitor subscriber
         if hasattr(self, 'monitor_image_subscriber') and self.monitor_image_subscriber:
             self.monitor_image_subscriber.destroy_node()
-
-        # Clean up image subscribers
         for subscriber in self.image_subscribers.values():
             if subscriber:
                 subscriber.destroy_node()
 
-        # Clean up pointcloud subscribers
         for subscriber in self.pointcloud_subscribers.values():
             if subscriber:
                 subscriber.destroy_node()
 
-        # Clean up generic subscribers
         for subscriber in self.subscribers.values():
             if subscriber:
                 subscriber.destroy_node()
@@ -524,10 +485,9 @@ def main():
     # Show the application
     viewer.show()
 
-    # Set up a timer to handle signals (required for proper signal handling in Qt)
     signal_timer = QTimer()
-    signal_timer.timeout.connect(lambda: None)  # Just to process signals
-    signal_timer.start(100)  # Check every 100ms
+    signal_timer.timeout.connect(lambda: None)  
+    signal_timer.start(100) 
 
     try:
         sys.exit(app.exec())

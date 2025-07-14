@@ -118,28 +118,23 @@ class CustomJoystick(QWidget):
         """Paint the joystick and buttons"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        
-        # Draw buttons
         for button_name, button_data in self.buttons.items():
             pos = button_data['pos']
             radius = button_data['radius']
             color = button_data['color']
             
-            # Button state affects appearance
             if self.button_states[button_name]:
                 painter.setPen(QPen(QColor(255, 255, 255), 3))
                 painter.setBrush(QBrush(color.lighter(150)))
             else:
                 painter.setPen(QPen(QColor(0, 0, 0), 2))
                 painter.setBrush(QBrush(color))
-            
-            # Draw button circle
+            #elipse
             painter.drawEllipse(pos.x() - radius, pos.y() - radius, 
                               radius * 2, radius * 2)
             
             painter.setPen(QPen(QColor(255, 255, 255), 2))
-            font_size = max(8, radius // 4)  # Scale font with button size
+            font_size = max(8, radius // 4)  
             painter.setFont(QFont("Arial", font_size, QFont.Weight.Bold))
             text_rect = QRect(pos.x() - radius, pos.y() - radius//3, radius * 2, radius)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, button_name)
