@@ -13,8 +13,6 @@ from sensor_msgs.msg import Image, CompressedImage
 import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
 from std_msgs.msg import Header, String, Int32, Int64, Float32, Float64, Bool
-import json
-import traceback
 from sensor_msgs.msg import BatteryState
 from diagnostic_msgs.msg import DiagnosticArray
 
@@ -77,7 +75,6 @@ class DataMonitorSubscriber:
                 self.subscriber = self.node.create_subscription(
                     TwistStamped, self.topic_name, self.message_callback, 10
                 )
-            # ADD THESE NEW CASES:
             elif self.msg_type == "sensor_msgs/BatteryState":
                 from sensor_msgs.msg import BatteryState
                 self.subscriber = self.node.create_subscription(
@@ -101,12 +98,19 @@ class DataMonitorSubscriber:
                 print(f"Unsupported message type: {self.msg_type}")
                 return False
             
-            print(f"Created subscriber for {self.topic_name} ({self.msg_type})")
-            return True
-            
+            if self.subscriber is not None:
+                print(f"Created subscriber for {self.topic_name} ({self.msg_type})")
+                return True
+            else:
+                print(f"Failed to create subscriber for {self.topic_name}")
+                return False
+                
         except Exception as e:
             print(f"Error creating subscriber for {self.topic_name}: {str(e)}")
+            # Set subscriber to None to indicate failure
+            self.subscriber = None
             return False
+
     
     def message_callback(self, msg):
         """Handle incoming messages"""
@@ -297,7 +301,6 @@ class MonitorTab(QWidget):
         # Message type selection
         topic_layout.addWidget(QLabel("Message Type:"))
         self.monitor_msg_type_combo = QComboBox()
-        # UPDATE THIS LIST:
         self.monitor_msg_type_combo.addItems([
             "std_msgs/String",
             "std_msgs/Int32",
@@ -310,21 +313,6 @@ class MonitorTab(QWidget):
             "sensor_msgs/BatteryState",
             "diagnostic_msgs/DiagnosticArray",
             "husarion_ugv_msgs/ChargingStatus"
-        ])
-        topic_layout.addWidget(self.monitor_msg_type_combo)
-        
-        # Message type selection
-        topic_layout.addWidget(QLabel("Message Type:"))
-        self.monitor_msg_type_combo = QComboBox()
-        self.monitor_msg_type_combo.addItems([
-            "std_msgs/String",
-            "std_msgs/Int32",
-            "std_msgs/Int64", 
-            "std_msgs/Float32",
-            "std_msgs/Float64",
-            "std_msgs/Bool",
-            "geometry_msgs/Twist",
-            "geometry_msgs/TwistStamped"
         ])
         topic_layout.addWidget(self.monitor_msg_type_combo)
         
@@ -443,13 +431,17 @@ class MonitorTab(QWidget):
 
     def start_topic_monitoring(self):
         """Start monitoring a topic"""
-        topic_name = self.get_selected_monitor_topic()  # USE NEW METHOD
+        topic_name = self.get_selected_monitor_topic()
         msg_type = self.monitor_msg_type_combo.currentText()
         
         if not topic_name:
             self.stats_label.setText("Please enter a topic name")
             self.stats_label.setStyleSheet("color: red; font-size: 11px;")
             return
+        
+        # Validate topic name format
+        if not topic_name.startswith('/'):
+            topic_name = f"/{topic_name}"
         
         if topic_name in self.data_subscribers:
             self.stats_label.setText(f"Already monitoring {topic_name}")
@@ -465,7 +457,8 @@ class MonitorTab(QWidget):
                 self.on_monitor_message_received
             )
             
-            if subscriber.subscriber:
+            # Check if subscriber was created successfully
+            if subscriber.subscriber is not None:
                 self.data_subscribers[topic_name] = subscriber
                 self.topic_data[topic_name] = {
                     'msg_type': msg_type,
@@ -494,6 +487,7 @@ class MonitorTab(QWidget):
             self.stats_label.setText(f"Error: {str(e)}")
             self.stats_label.setStyleSheet("color: red; font-size: 11px;")
             print(f"Error starting monitoring for {topic_name}: {str(e)}")
+
 
     def stop_topic_monitoring(self):
         """Stop monitoring a specific topic or all topics"""
@@ -547,7 +541,10 @@ class MonitorTab(QWidget):
 
     def on_monitor_message_received(self, topic_name, msg, message_count, timestamp):
         """Handle received messages for data monitoring"""
+        print(f"DEBUG: Received message for {topic_name}, count: {message_count}")
+        
         if topic_name not in self.topic_data:
+            print(f"DEBUG: Topic {topic_name} not in topic_data")
             return
         
         # Update topic data
@@ -571,6 +568,9 @@ class MonitorTab(QWidget):
         elapsed_time = (timestamp - start_time).total_seconds()
         if elapsed_time > 0:
             self.topic_stats[topic_name]['frequency'] = message_count / elapsed_time
+        
+        print(f"DEBUG: Updated data for {topic_name}, total messages: {message_count}")
+
 
     def update_monitor_display(self):
         """Update the monitor display with current data"""
@@ -586,6 +586,11 @@ class MonitorTab(QWidget):
 
     def update_active_topics_list(self):
         """Update the active topics list widget"""
+        current_selection = None
+        selected_items = self.active_topics_list.selectedItems()
+        if selected_items:
+            current_selection = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
+        
         self.active_topics_list.clear()
         
         for topic_name, stats in self.topic_stats.items():
@@ -603,11 +608,23 @@ class MonitorTab(QWidget):
             # Store topic name for selection
             item.setData(0, Qt.ItemDataRole.UserRole, topic_name)
             self.active_topics_list.addTopLevelItem(item)
+            
+            # Restore selection if this was the previously selected topic
+            if current_selection == topic_name:
+                self.active_topics_list.setCurrentItem(item)
+                self.display_topic_messages(topic_name)
         
         # Auto-resize columns
         self.active_topics_list.resizeColumnToContents(0)
         self.active_topics_list.resizeColumnToContents(1)
         self.active_topics_list.resizeColumnToContents(2)
+        
+        # Auto-select first item if nothing is selected
+        if not current_selection and self.active_topics_list.topLevelItemCount() > 0:
+            first_item = self.active_topics_list.topLevelItem(0)
+            self.active_topics_list.setCurrentItem(first_item)
+            topic_name = first_item.data(0, Qt.ItemDataRole.UserRole)
+            self.display_topic_messages(topic_name)
 
     def on_topic_selected(self, item):
         """Handle topic selection in the active topics list"""
@@ -651,85 +668,137 @@ class MonitorTab(QWidget):
     def format_message(self, msg):
         """Format a ROS message for display"""
         try:
-            # Convert message to string representation
-            msg_str = str(msg)
+            # Get the message type name
+            msg_type = type(msg).__name__
             
-            # For simple message types, extract the value
-            if hasattr(msg, 'data'):
+            # Handle based on message type
+            if msg_type == 'String':
                 return f"  data: {msg.data}"
-            elif hasattr(msg, 'linear') and hasattr(msg, 'angular'):
-                # Twist message
+            elif msg_type in ['Int32', 'Int64', 'Float32', 'Float64', 'Bool']:
+                return f"  data: {msg.data}"
+            elif msg_type == 'Twist':
                 return f"  linear:  x={msg.linear.x:.3f}, y={msg.linear.y:.3f}, z={msg.linear.z:.3f}\n" \
                     f"  angular: x={msg.angular.x:.3f}, y={msg.angular.y:.3f}, z={msg.angular.z:.3f}"
-            elif hasattr(msg, 'twist') and hasattr(msg, 'header'):
-                # TwistStamped message
+            elif msg_type == 'TwistStamped':
                 return f"  header: frame_id='{msg.header.frame_id}', stamp={msg.header.stamp.sec}.{msg.header.stamp.nanosec}\n" \
                     f"  twist:\n" \
                     f"    linear:  x={msg.twist.linear.x:.3f}, y={msg.twist.linear.y:.3f}, z={msg.twist.linear.z:.3f}\n" \
                     f"    angular: x={msg.twist.angular.x:.3f}, y={msg.twist.angular.y:.3f}, z={msg.twist.angular.z:.3f}"
-            # ADD THESE NEW CASES:
-            elif hasattr(msg, 'voltage') and hasattr(msg, 'current'):
-                # BatteryState message
-                power_supply_status = ['Unknown', 'Charging', 'Discharging', 'Not Charging', 'Full']
-                power_supply_health = ['Unknown', 'Good', 'Overheat', 'Dead', 'Overvoltage', 'Unspecified Failure', 'Cold', 'Watchdog Timer Expire', 'Safety Timer Expire']
-                power_supply_technology = ['Unknown', 'NiMH', 'Li-ion', 'Li-poly', 'LiFe', 'NiCd', 'LiMn']
-                
-                status_str = power_supply_status[msg.power_supply_status] if msg.power_supply_status < len(power_supply_status) else f"Unknown({msg.power_supply_status})"
-                health_str = power_supply_health[msg.power_supply_health] if msg.power_supply_health < len(power_supply_health) else f"Unknown({msg.power_supply_health})"
-                tech_str = power_supply_technology[msg.power_supply_technology] if msg.power_supply_technology < len(power_supply_technology) else f"Unknown({msg.power_supply_technology})"
-                
-                return f"  voltage: {msg.voltage:.2f}V\n" \
-                    f"  current: {msg.current:.2f}A\n" \
-                    f"  charge: {msg.charge:.2f}Ah\n" \
-                    f"  capacity: {msg.capacity:.2f}Ah\n" \
-                    f"  design_capacity: {msg.design_capacity:.2f}Ah\n" \
-                    f"  percentage: {msg.percentage:.1f}%\n" \
-                    f"  power_supply_status: {status_str}\n" \
-                    f"  power_supply_health: {health_str}\n" \
-                    f"  power_supply_technology: {tech_str}\n" \
-                    f"  present: {msg.present}\n" \
-                    f"  location: '{msg.location}'\n" \
-                    f"  serial_number: '{msg.serial_number}'"
-            elif hasattr(msg, 'status') and hasattr(msg, 'header'):
-                # DiagnosticArray message
-                result = f"  header: frame_id='{msg.header.frame_id}', stamp={msg.header.stamp.sec}.{msg.header.stamp.nanosec}\n"
-                result += f"  status: [{len(msg.status)} items]\n"
-                for i, status in enumerate(msg.status):
-                    level_names = ['OK', 'WARN', 'ERROR', 'STALE']
-                    level_str = level_names[status.level] if status.level < len(level_names) else f"Unknown({status.level})"
-                    result += f"    [{i}] name: '{status.name}'\n"
-                    result += f"        level: {level_str}\n"
-                    result += f"        message: '{status.message}'\n"
-                    result += f"        hardware_id: '{status.hardware_id}'\n"
-                    if status.values:
-                        result += f"        values: [{len(status.values)} items]\n"
-                        for j, kv in enumerate(status.values[:3]):  # Show first 3 values
-                            result += f"          [{j}] {kv.key}: {kv.value}\n"
-                        if len(status.values) > 3:
-                            result += f"          ... and {len(status.values) - 3} more\n"
-                return result
-            elif hasattr(msg, 'is_charging'):
-                # ChargingStatus message (assuming it has typical charging fields)
-                return f"  is_charging: {msg.is_charging}\n" \
-                    f"  charge_level: {getattr(msg, 'charge_level', 'N/A')}\n" \
-                    f"  charging_current: {getattr(msg, 'charging_current', 'N/A')}\n" \
-                    f"  charging_voltage: {getattr(msg, 'charging_voltage', 'N/A')}"
+            elif msg_type == 'BatteryState':
+                return self.format_battery_state(msg)
+            elif msg_type == 'DiagnosticArray':
+                return self.format_diagnostic_array(msg)
+            elif msg_type == 'ChargingStatus':
+                return self.format_charging_status(msg)
             else:
-                # Generic formatting
-                lines = msg_str.split('\n')
-                formatted_lines = []
-                for line in lines:
-                    if line.strip():
-                        formatted_lines.append(f"  {line}")
-                return '\n'.join(formatted_lines)
+                # Generic fallback using reflection
+                return self.format_generic_message(msg)
                 
         except Exception as e:
             return f"  [Error formatting message: {str(e)}]"
-
+        
     def on_topic_changed(self, topic_name):
         """Handle topic name changes and update publishers"""
         self.cleanup_publishers()
         self.setup_publishers(topic_name)
+
+    def format_battery_state(self, msg):
+        """Format BatteryState message"""
+        power_supply_status = {
+            0: 'Unknown', 1: 'Charging', 2: 'Discharging', 
+            3: 'Not Charging', 4: 'Full'
+        }
+        power_supply_health = {
+            0: 'Unknown', 1: 'Good', 2: 'Overheat', 3: 'Dead', 
+            4: 'Overvoltage', 5: 'Unspecified Failure', 6: 'Cold', 
+            7: 'Watchdog Timer Expire', 8: 'Safety Timer Expire'
+        }
+        power_supply_technology = {
+            0: 'Unknown', 1: 'NiMH', 2: 'Li-ion', 3: 'Li-poly', 
+            4: 'LiFe', 5: 'NiCd', 6: 'LiMn'
+        }
+        
+        status_str = power_supply_status.get(msg.power_supply_status, f"Unknown({msg.power_supply_status})")
+        health_str = power_supply_health.get(msg.power_supply_health, f"Unknown({msg.power_supply_health})")
+        tech_str = power_supply_technology.get(msg.power_supply_technology, f"Unknown({msg.power_supply_technology})")
+        
+        return f"  voltage: {msg.voltage:.2f}V\n" \
+            f"  current: {msg.current:.2f}A\n" \
+            f"  charge: {msg.charge:.2f}Ah\n" \
+            f"  capacity: {msg.capacity:.2f}Ah\n" \
+            f"  design_capacity: {msg.design_capacity:.2f}Ah\n" \
+            f"  percentage: {msg.percentage*100:.1f}%\n" \
+            f"  power_supply_status: {status_str}\n" \
+            f"  power_supply_health: {health_str}\n" \
+            f"  power_supply_technology: {tech_str}\n" \
+            f"  present: {msg.present}\n" \
+            f"  location: '{msg.location}'\n" \
+            f"  serial_number: '{msg.serial_number}'"
+
+    def format_diagnostic_array(self, msg):
+        """Format DiagnosticArray message"""
+        level_names = {0: 'OK', 1: 'WARN', 2: 'ERROR', 3: 'STALE'}
+        
+        result = f"  header: frame_id='{msg.header.frame_id}', stamp={msg.header.stamp.sec}.{msg.header.stamp.nanosec}\n"
+        result += f"  status: [{len(msg.status)} items]\n"
+        
+        for i, status in enumerate(msg.status):
+            level_str = level_names.get(status.level, f"Unknown({status.level})")
+            result += f"    [{i}] name: '{status.name}'\n"
+            result += f"        level: {level_str}\n"
+            result += f"        message: '{status.message}'\n"
+            result += f"        hardware_id: '{status.hardware_id}'\n"
+            
+            if status.values:
+                result += f"        values: [{len(status.values)} items]\n"
+                for j, kv in enumerate(status.values[:3]):
+                    result += f"          [{j}] {kv.key}: {kv.value}\n"
+                if len(status.values) > 3:
+                    result += f"          ... and {len(status.values) - 3} more\n"
+        
+        return result
+
+    def format_charging_status(self, msg):
+        """Format ChargingStatus message"""
+        fields = []
+        
+        # Use reflection to get all fields
+        for field_name in dir(msg):
+            if not field_name.startswith('_') and not callable(getattr(msg, field_name)):
+                try:
+                    value = getattr(msg, field_name)
+                    if value is not None:
+                        fields.append(f"  {field_name}: {value}")
+                except:
+                    pass
+        
+        return '\n'.join(fields) if fields else "  [No readable fields]"
+
+    def format_generic_message(self, msg):
+        """Generic message formatting using reflection"""
+        fields = []
+        
+        # Try to get all public attributes
+        for attr_name in dir(msg):
+            if not attr_name.startswith('_') and not callable(getattr(msg, attr_name)):
+                try:
+                    value = getattr(msg, attr_name)
+                    if hasattr(value, '__dict__'):  # Nested message
+                        fields.append(f"  {attr_name}:")
+                        for sub_attr in dir(value):
+                            if not sub_attr.startswith('_') and not callable(getattr(value, sub_attr)):
+                                try:
+                                    sub_value = getattr(value, sub_attr)
+                                    fields.append(f"    {sub_attr}: {sub_value}")
+                                except:
+                                    pass
+                    else:
+                        fields.append(f"  {attr_name}: {value}")
+                except:
+                    pass
+        
+        return '\n'.join(fields) if fields else "  [No readable fields]"
+
 
     def on_message_type_changed(self, display_text):
         """Handle message type changes"""
@@ -868,100 +937,17 @@ class MonitorTab(QWidget):
             # Sort topics for better organization
             sorted_topics = sorted(topics)
             
-            # Add topics with helpful categorization
+            # Add topics with their actual names as both display and data
             for topic in sorted_topics:
-                display_name = topic
-                self.monitor_topic_combo.addItem(display_name, topic)  # Store actual topic as data
+                self.monitor_topic_combo.addItem(topic, topic)  # Both display and data are the same
             
             # Restore previous selection
             if current_monitor_text:
-                # Try to find by actual topic name
-                for i in range(self.monitor_topic_combo.count()):
-                    if self.monitor_topic_combo.itemData(i) == current_monitor_text:
-                        self.monitor_topic_combo.setCurrentIndex(i)
-                        break
-                else:
-                    # Fallback to text search
-                    index = self.monitor_topic_combo.findText(current_monitor_text)
-                    if index >= 0:
-                        self.monitor_topic_combo.setCurrentIndex(index)
-                    else:
-                        self.monitor_topic_combo.setCurrentText(current_monitor_text)
-
-        
-        if hasattr(self, 'image_topic_combo'):
-            # Filter for both regular and compressed image topics
-            # This should match what's done in image_tab.py
-            image_topics = []
-            for topic in topics:
-                topic_lower = topic.lower()
-                # Check for common image topic patterns
-                if (('image' in topic_lower or 'camera' in topic_lower) and
-                    (topic.endswith('/image_raw') or 
-                     topic.endswith('/compressed') or
-                     topic.endswith('/image') or
-                     '/image_raw/' in topic or
-                     '/compressed/' in topic or
-                     topic.endswith('/image_color') or
-                     topic.endswith('/image_mono') or
-                     topic.endswith('/image_rect') or
-                     topic.endswith('/image_rect_color'))):
-                    image_topics.append(topic)
-            
-            current_image_text = self.image_topic_combo.currentText()
-            self.image_topic_combo.clear()
-            
-            if image_topics:
-                # Sort topics with compressed topics clearly marked
-                sorted_topics = sorted(image_topics, key=lambda x: (x.split('/')[-1], x))
-                
-                # Add topics with visual indicators
-                for topic in sorted_topics:
-                    if self.is_compressed_topic(topic):
-                        display_name = f"{topic} (compressed)"
-                    else:
-                        display_name = f"{topic} (raw)"
-                    
-                    self.image_topic_combo.addItem(display_name, topic)  # Store actual topic as data
-                
-                self.image_topic_combo.setPlaceholderText("Select image topic...")
-                self.image_connect_btn.setEnabled(True)
-            else:
-                self.image_topic_combo.setPlaceholderText("No image topics available")
-                self.image_connect_btn.setEnabled(False)
-            
-            # Restore previous selection if it still exists
-            if current_image_text:
-                for i in range(self.image_topic_combo.count()):
-                    if self.image_topic_combo.itemData(i) == current_image_text:
-                        self.image_topic_combo.setCurrentIndex(i)
-                        break
-
-        # Update twist topic combo with common cmd_vel topics
-        if hasattr(self, 'twist_topic_combo'):
-            current_twist_text = self.twist_topic_combo.currentText()
-            self.twist_topic_combo.clear()
-            
-            # Add common command velocity topics
-            common_cmd_topics = ["/cmd_vel", "/cmd_vel_mux/input/teleop", "/mobile_base/commands/velocity"]
-            for topic in common_cmd_topics:
-                self.twist_topic_combo.addItem(topic)
-            
-            # Add any other topics that might be command velocity topics
-            cmd_topics = [topic for topic in topics if 'cmd' in topic.lower() or 'vel' in topic.lower()]
-            for topic in cmd_topics:
-                if topic not in common_cmd_topics:
-                    self.twist_topic_combo.addItem(topic)
-            
-            # Restore previous selection or default to /cmd_vel
-            if current_twist_text:
-                index = self.twist_topic_combo.findText(current_twist_text)
+                index = self.monitor_topic_combo.findText(current_monitor_text)
                 if index >= 0:
-                    self.twist_topic_combo.setCurrentIndex(index)
+                    self.monitor_topic_combo.setCurrentIndex(index)
                 else:
-                    self.twist_topic_combo.setCurrentText(current_twist_text)
-            else:
-                self.twist_topic_combo.setCurrentText("/cmd_vel")
+                    self.monitor_topic_combo.setCurrentText(current_monitor_text)
 
     def is_compressed_topic(self, topic_name):
         """Check if a topic is a compressed image topic"""
@@ -971,17 +957,23 @@ class MonitorTab(QWidget):
 
     def get_selected_monitor_topic(self):
         """Get the actual topic name from the monitor combo box selection"""
+        current_text = self.monitor_topic_combo.currentText().strip()
+        
+        # If there's a current selection, try to get the data
         current_index = self.monitor_topic_combo.currentIndex()
         if current_index >= 0:
             topic_data = self.monitor_topic_combo.itemData(current_index)
             if topic_data:
                 return topic_data
         
-        # Fallback to text parsing
-        text = self.monitor_topic_combo.currentText().strip()
-        if text.startswith(('🔋 ', '🔧 ', '⚡ ', '🚗 ', '📷 ')):
-            return text[2:]  # Remove emoji and space
-        return text
+        # If no data or manual entry, return the text directly
+        # Remove any extra whitespace and validate
+        if current_text and current_text.startswith('/'):
+            return current_text
+        elif current_text and not current_text.startswith('/'):
+            return f"/{current_text}"  # Add leading slash if missing
+        
+        return current_text
 
 
     def get_selected_topic(self):
