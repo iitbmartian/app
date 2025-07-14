@@ -3,3 +3,4 @@ pyqtgraph
 PyOpenGL
 rclpy
 opencv-python
+pyyaml
