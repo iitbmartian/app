@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROS2 3D Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Control Panel */
+        #control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 280px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group h3 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #64ffda;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .control-row label {
+            font-size: 12px;
+            color: #b0b0b0;
+        }
+
+        .toggle-btn {
+            background: linear-gradient(135deg, #2196F3, #21CBF3);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            padding: 6px 12px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .toggle-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+        }
+
+        .toggle-btn.inactive {
+            background: linear-gradient(135deg, #424242, #616161);
+        }
+
+        /* Status Panel */
+        #status-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            min-width: 300px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            padding: 3px 0;
+        }
+
+        .status-label {
+            color: #b0b0b0;
+        }
+
+        .status-value {
+            color: #64ffda;
+            font-weight: bold;
+        }
+
+        .connection-status {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .connected {
+            background: linear-gradient(135deg, #4CAF50, #8BC34A);
+        }
+
+        .disconnected {
+            background: linear-gradient(135deg, #f44336, #ff5722);
+        }
+
+        /* Loading Animation */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(100, 255, 218, 0.3);
+            border-top: 3px solid #64ffda;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            #control-panel {
+                top: 10px;
+                right: 10px;
+                min-width: 240px;
+                padding: 15px;
+            }
+            
+            #status-panel {
+                bottom: 10px;
+                left: 10px;
+                min-width: 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        
+        <!-- Loading Screen -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <div>Connecting to ROS2 Bridge...</div>
+        </div>
+
+        <!-- Control Panel -->
+        <div id="control-panel">
+            <div class="control-group">
+                <h3>Layers</h3>
+                <div class="control-row">
+                    <label>Map</label>
+                    <button class="toggle-btn" id="toggle-map">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Local Costmap</label>
+                    <button class="toggle-btn" id="toggle-costmap">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Point Cloud</label>
+                    <button class="toggle-btn" id="toggle-pointcloud">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Global Path</label>
+                    <button class="toggle-btn" id="toggle-globalpath">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Local Path</label>
+                    <button class="toggle-btn" id="toggle-localpath">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Markers</label>
+                    <button class="toggle-btn" id="toggle-markers">ON</button>
+                </div>
+                <div class="control-row">
+                    <label>Robot</label>
+                    <button class="toggle-btn" id="toggle-robot">ON</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Camera</h3>
+                <div class="control-row">
+                    <button class="toggle-btn" id="reset-camera">Reset View</button>
+                </div>
+                <div class="control-row">
+                    <button class="toggle-btn" id="follow-robot">Follow Robot</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Panel -->
+        <div id="status-panel">
+            <div id="connection-status" class="connection-status disconnected">DISCONNECTED</div>
+            <div class="status-item">
+                <span class="status-label">FPS:</span>
+                <span class="status-value" id="fps-counter">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Points:</span>
+                <span class="status-value" id="point-count">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Map Size:</span>
+                <span class="status-value" id="map-size">0x0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Path Points:</span>
+                <span class="status-value" id="path-points">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Markers:</span>
+                <span class="status-value" id="marker-count">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Last Update:</span>
+                <span class="status-value" id="last-update">Never</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class ROS3DVisualizer {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                
+                // WebSocket connection
+                this.ws = null;
+                this.isConnected = false;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                
+                // Scene objects
+                this.mapMesh = null;
+                this.costmapMesh = null;
+                this.pointCloudMesh = null;
+                this.globalPathMesh = null;
+                this.localPathMesh = null;
+                this.robotMesh = null;
+                this.markerObjects = new Map();
+                
+                // Layer visibility
+                this.layers = {
+                    map: true,
+                    costmap: true,
+                    pointcloud: true,
+                    globalpath: true,
+                    localpath: true,
+                    markers: true,
+                    robot: true
+                };
+                
+                // Camera controls
+                this.controls = null;
+                this.followRobot = false;
+                this.robotPosition = new THREE.Vector3();
+                
+                // Performance tracking
+                this.frameCount = 0;
+                this.lastTime = performance.now();
+                this.fps = 0;
+                
+                this.init();
+                this.setupEventListeners();
+                this.connect();
+                this.animate();
+            }
+            
+            init() {
+                // Setup renderer
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x0f0f23, 1);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('canvas-container').appendChild(this.renderer.domElement);
+                
+                // Setup camera
+                this.camera.position.set(10, 10, 10);
+                this.camera.lookAt(0, 0, 0);
+                
+                // Add camera controls (simplified orbit controls)
+                this.setupCameraControls();
+                
+                // Setup scene
+                this.setupScene();
+                
+                // Hide loading screen initially
+                document.getElementById('loading').style.display = 'block';
+            }
+            
+            setupScene() {
+                // Add ambient light
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(ambientLight);
+                
+                // Add directional light
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 10, 5);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                this.scene.add(directionalLight);
+                
+                // Add grid helper
+                const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+                this.scene.add(gridHelper);
+                
+                // Add axes helper
+                const axesHelper = new THREE.AxesHelper(2);
+                this.scene.add(axesHelper);
+            }
+            
+            setupCameraControls() {
+                // Simple mouse controls for camera
+                let isDragging = false;
+                let previousMousePosition = { x: 0, y: 0 };
+                let cameraDistance = 20;
+                let cameraAngleY = 0;
+                let cameraAngleX = 0.3;
+                
+                const updateCameraPosition = () => {
+                    const target = this.followRobot ? this.robotPosition : new THREE.Vector3(0, 0, 0);
+                    
+                    this.camera.position.x = target.x + cameraDistance * Math.cos(cameraAngleY) * Math.cos(cameraAngleX);
+                    this.camera.position.y = target.y + cameraDistance * Math.sin(cameraAngleX);
+                    this.camera.position.z = target.z + cameraDistance * Math.sin(cameraAngleY) * Math.cos(cameraAngleX);
+                    
+                    this.camera.lookAt(target);
+                };
+                
+                this.renderer.domElement.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    previousMousePosition = { x: e.clientX, y: e.clientY };
+                });
+                
+                this.renderer.domElement.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    
+                    const deltaX = e.clientX - previousMousePosition.x;
+                    const deltaY = e.clientY - previousMousePosition.y;
+                    
+                    cameraAngleY += deltaX * 0.01;
+                    cameraAngleX = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, cameraAngleX - deltaY * 0.01));
+                    
+                    updateCameraPosition();
+                    
+                    previousMousePosition = { x: e.clientX, y: e.clientY };
+                });
+                
+                this.renderer.domElement.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
+                
+                this.renderer.domElement.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    cameraDistance = Math.max(2, Math.min(100, cameraDistance + e.deltaY * 0.01));
+                    updateCameraPosition();
+                });
+                
+                this.updateCameraPosition = updateCameraPosition;
+                updateCameraPosition();
+            }
+            
+            setupEventListeners() {
+                // Window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+                
+                // Layer toggles
+                Object.keys(this.layers).forEach(layer => {
+                    const button = document.getElementById(`toggle-${layer}`);
+                    if (button) {
+                        button.addEventListener('click', () => this.toggleLayer(layer));
+                    }
+                });
+                
+                // Camera controls
+                document.getElementById('reset-camera').addEventListener('click', () => {
+                    this.followRobot = false;
+                    this.camera.position.set(10, 10, 10);
+                    this.camera.lookAt(0, 0, 0);
+                });
+                
+                document.getElementById('follow-robot').addEventListener('click', () => {
+                    this.followRobot = !this.followRobot;
+                    const button = document.getElementById('follow-robot');
+                    button.textContent = this.followRobot ? 'Unfollow Robot' : 'Follow Robot';
+                    button.classList.toggle('inactive', !this.followRobot);
+                });
+            }
+            
+            toggleLayer(layerName) {
+                this.layers[layerName] = !this.layers[layerName];
+                const button = document.getElementById(`toggle-${layerName}`);
+                button.textContent = this.layers[layerName] ? 'ON' : 'OFF';
+                button.classList.toggle('inactive', !this.layers[layerName]);
+                
+                // Update visibility
+                this.updateLayerVisibility();
+            }
+            
+            updateLayerVisibility() {
+                if (this.mapMesh) this.mapMesh.visible = this.layers.map;
+                if (this.costmapMesh) this.costmapMesh.visible = this.layers.costmap;
+                if (this.pointCloudMesh) this.pointCloudMesh.visible = this.layers.pointcloud;
+                if (this.globalPathMesh) this.globalPathMesh.visible = this.layers.globalpath;
+                if (this.localPathMesh) this.localPathMesh.visible = this.layers.localpath;
+                if (this.robotMesh) this.robotMesh.visible = this.layers.robot;
+                
+                this.markerObjects.forEach(marker => {
+                    marker.visible = this.layers.markers;
+                });
+            }
+            
+            connect() {
+                const wsUrl = `ws://${window.location.hostname}:8000/ws`;
+                console.log('Connecting to:', wsUrl);
+                
+                this.ws = new WebSocket(wsUrl);
+                
+                this.ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    this.isConnected = true;
+                    this.reconnectAttempts = 0;
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('connection-status').textContent = 'CONNECTED';
+                    document.getElementById('connection-status').className = 'connection-status connected';
+                };
+                
+                this.ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.processRosData(data);
+                        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                    } catch (error) {
+                        console.error('Error processing WebSocket message:', error);
+                    }
+                };
+                
+                this.ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    this.isConnected = false;
+                    document.getElementById('connection-status').textContent = 'DISCONNECTED';
+                    document.getElementById('connection-status').className = 'connection-status disconnected';
+                    
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        setTimeout(() => {
+                            this.reconnectAttempts++;
+                            console.log(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+                            this.connect();
+                        }, 2000 * this.reconnectAttempts);
+                    }
+                };
+                
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+            }
+            
+            processRosData(data) {
+                if (data.map) this.updateMap(data.map);
+                if (data.local_costmap) this.updateCostmap(data.local_costmap);
+                if (data.point_cloud) this.updatePointCloud(data.point_cloud);
+                if (data.global_path) this.updateGlobalPath(data.global_path);
+                if (data.local_path) this.updateLocalPath(data.local_path);
+                if (data.markers) this.updateMarkers(data.markers);
+                if (data.robot_pose) this.updateRobotPose(data.robot_pose);
+            }
+            
+            updateMap(mapData) {
+                // Remove existing map
+                if (this.mapMesh) {
+                    this.scene.remove(this.mapMesh);
+                    this.mapMesh.geometry.dispose();
+                    this.mapMesh.material.dispose();
+                }
+                
+                const { width, height, resolution, origin, data } = mapData;
+                
+                // Create geometry for occupied cells
+                const geometry = new THREE.BufferGeometry();
+                const positions = [];
+                const colors = [];
+                
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const index = y * width + x;
+                        const value = data[index];
+                        
+                        if (value > 50) { // Occupied cell
+                            const worldX = origin.x + x * resolution;
+                            const worldY = origin.y + y * resolution;
+                            const worldZ = 0;
+                            
+                            // Create a small cube for each occupied cell
+                            this.addCube(positions, colors, worldX, worldY, worldZ, resolution * 0.8, [0.3, 0.3, 0.3]);
+                        }
+                    }
+                }
+                
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                
+                const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+                this.mapMesh = new THREE.Mesh(geometry, material);
+                this.mapMesh.visible = this.layers.map;
+                this.scene.add(this.mapMesh);
+                
+                // Update status
+                document.getElementById('map-size').textContent = `${width}x${height}`;
+            }
+            
+            updateCostmap(costmapData) {
+                // Remove existing costmap
+                if (this.costmapMesh) {
+                    this.scene.remove(this.costmapMesh);
+                    this.costmapMesh.geometry.dispose();
+                    this.costmapMesh.material.dispose();
+                }
+                
+                const { width, height, resolution, origin, data } = costmapData;
+                
+                const geometry = new THREE.BufferGeometry();
+                const positions = [];
+                const colors = [];
+                
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const index = y * width + x;
+                        const value = data[index];
+                        
+                        if (value > 0 && value < 255) { // Cost cell
+                            const worldX = origin.x + x * resolution;
+                            const worldY = origin.y + y * resolution;
+                            const worldZ = 0.01; // Slightly above map
+                            
+                            const intensity = value / 254.0;
+                            this.addCube(positions, colors, worldX, worldY, worldZ, resolution * 0.6, [1.0, 1.0 - intensity, 0.0]);
+                        }
+                    }
+                }
+                
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                
+                const material = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+                this.costmapMesh = new THREE.Mesh(geometry, material);
+                this.costmapMesh.visible = this.layers.costmap;
+                this.scene.add(this.costmapMesh);
+            }
+            
+            updatePointCloud(cloudData) {
+                // Remove existing point cloud
+                if (this.pointCloudMesh) {
+                    this.scene.remove(this.pointCloudMesh);
+                    this.pointCloudMesh.geometry.dispose();
+                    this.pointCloudMesh.material.dispose();
+                }
+                
+                const { points, colors } = cloudData;
+                
+                if (points.length === 0) return;
+                
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                
+                const material = new THREE.PointsMaterial({ 
+                    size: 0.05, 
+                    vertexColors: true,
+                    sizeAttenuation: true
+                });
+                
+                this.pointCloudMesh = new THREE.Points(geometry, material);
+                this.pointCloudMesh.visible = this.layers.pointcloud;
+                this.scene.add(this.pointCloudMesh);
+                
+                // Update status
+                document.getElementById('point-count').textContent = Math.floor(points.length / 3);
+            }
+            
+            updateGlobalPath(pathData) {
+                // Remove existing global path
+                if (this.globalPathMesh) {
+                    this.scene.remove(this.globalPathMesh);
+                    this.globalPathMesh.geometry.dispose();
+                    this.globalPathMesh.material.dispose();
+                }
+                
+                if (pathData.poses.length < 2) return;
+                
+                const points = pathData.poses.map(pose => 
+                    new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z + 0.1)
+                );
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
+                
+                this.globalPathMesh = new THREE.Line(geometry, material);
+                this.globalPathMesh.visible = this.layers.globalpath;
+                this.scene.add(this.globalPathMesh);
+                
+                // Update status
+                document.getElementById('path-points').textContent = pathData.poses.length;
+            }
+            
+            updateLocalPath(pathData) {
+                // Remove existing local path
+                if (this.localPathMesh) {
+                    this.scene.remove(this.localPathMesh);
+                    this.localPathMesh.geometry.dispose();
+                    this.localPathMesh.material.dispose();
+                }
+                
+                if (pathData.poses.length < 2) return;
+                
+                const points = pathData.poses.map(pose => 
+                    new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z + 0.15)
+                );
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 });
+                
+                this.localPathMesh = new THREE.Line(geometry, material);
+                this.localPathMesh.visible = this.layers.localpath;
+                this.scene.add(this.localPathMesh);
+            }
+            
+            updateMarkers(markersData) {
+                // Clear existing markers
+                this.markerObjects.forEach(marker => {
+                    this.scene.remove(marker);
+                    if (marker.geometry) marker.geometry.dispose();
+                    if (marker.material) marker.material.dispose();
+                });
+                this.markerObjects.clear();
+                
+                markersData.markers.forEach(markerData => {
+                    const marker = this.createMarker(markerData);
+                    if (marker) {
+                        marker.visible = this.layers.markers;
+                        this.markerObjects.set(`${markerData.ns}_${markerData.id}`, marker);
+                        this.scene.add(marker);
+                    }
+                });
+                
+                // Update status
+                document.getElementById('marker-count').textContent = this.markerObjects.size;
+            }
+            
+            createMarker(markerData) {
+                const { position, orientation, scale, color, type } = markerData;
+                
+                let geometry, material;
+                
+                switch (type) {
+                    case 1: // CUBE
+                        geometry = new THREE.BoxGeometry(scale.x, scale.y, scale.z);
+                        break;
+                    case 2: // SPHERE
+                        geometry = new THREE.SphereGeometry(scale.x / 2, 16, 12);
+                        break;
+                    case 3: // CYLINDER
+                        geometry = new THREE.CylinderGeometry(scale.x / 2, scale.x / 2, scale.z, 16);
+                        break;
+                    case 0: // ARROW
+                        geometry = new THREE.ConeGeometry(scale.x / 4, scale.z, 8);
+                        break;
+                    default:
+                        geometry = new THREE.BoxGeometry(scale.x, scale.y, scale.z);
+                }
+                
+                material = new THREE.MeshLambertMaterial({ 
+                    color: new THREE.Color(color.r, color.g, color.b),
+                    transparent: color.a < 1.0,
+                    opacity: color.a
+                });
+                
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(position.x, position.y, position.z);
+                mesh.quaternion.set(orientation.x, orientation.y, orientation.z, orientation.w);
+                
+                return mesh;
+            }
+            
+            updateRobotPose(poseData) {
+                // Remove existing robot
+                if (this.robotMesh) {
+                    this.scene.remove(this.robotMesh);
+                    this.robotMesh.geometry.dispose();
+                    this.robotMesh.material.dispose();
+                }
+                
+                // Create simple robot representation
+                const geometry = new THREE.ConeGeometry(0.2, 0.4, 8);
+                const material = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+                
+                this.robotMesh = new THREE.Mesh(geometry, material);
+                this.robotMesh.position.set(poseData.position.x, poseData.position.y, poseData.position.z + 0.2);
+                this.robotMesh.quaternion.set(
+                    poseData.orientation.x, 
+                    poseData.orientation.y, 
+                    poseData.orientation.z, 
+                    poseData.orientation.w
+                );
+                this.robotMesh.visible = this.layers.robot;
+                this.scene.add(this.robotMesh);
+                
+                // Update robot position for camera following
+                this.robotPosition.set(poseData.position.x, poseData.position.y, poseData.position.z);
+                
+                if (this.followRobot && this.updateCameraPosition) {
+                    this.updateCameraPosition();
+                }
+            }
+            
+            addCube(positions, colors, x, y, z, size, color) {
+                const halfSize = size / 2;
+                
+                // Define cube vertices
+                const vertices = [
+                    // Front face
+                    x - halfSize, y - halfSize, z + halfSize,
+                    x + halfSize, y - halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x - halfSize, y + halfSize, z + halfSize,
+                    x - halfSize, y - halfSize, z + halfSize,
+                    
+                    // Back face
+                    x - halfSize, y - halfSize, z - halfSize,
+                    x - halfSize, y + halfSize, z - halfSize,
+                    x + halfSize, y + halfSize, z - halfSize,
+                    x + halfSize, y + halfSize, z - halfSize,
+                    x + halfSize, y - halfSize, z - halfSize,
+                    x - halfSize, y - halfSize, z - halfSize,
+                    
+                    // Top face
+                    x - halfSize, y + halfSize, z - halfSize,
+                    x - halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z - halfSize,
+                    x - halfSize, y + halfSize, z - halfSize,
+                    
+                    // Bottom face
+                    x - halfSize, y - halfSize, z - halfSize,
+                    x + halfSize, y - halfSize, z - halfSize,
+                    x + halfSize, y - halfSize, z + halfSize,
+                    x + halfSize, y - halfSize, z + halfSize,
+                    x - halfSize, y - halfSize, z + halfSize,
+                    x - halfSize, y - halfSize, z - halfSize,
+                    
+                    // Right face
+                    x + halfSize, y - halfSize, z - halfSize,
+                    x + halfSize, y + halfSize, z - halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y + halfSize, z + halfSize,
+                    x + halfSize, y - halfSize, z + halfSize,
+                    x + halfSize, y - halfSize, z - halfSize,
+                    
+                    // Left face
+                    x - halfSize, y - halfSize, z - halfSize,
+                    x - halfSize, y - halfSize, z + halfSize,
+                    x - halfSize, y + halfSize, z + halfSize,
+                    x - halfSize, y + halfSize, z + halfSize,
+                    x - halfSize, y + halfSize, z - halfSize,
+                    x - halfSize, y - halfSize, z - halfSize
+                ];
+                
+                positions.push(...vertices);
+                
+                // Add colors for all vertices
+                for (let i = 0; i < 36; i++) {
+                    colors.push(...color);
+                }
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                // Update FPS counter
+                this.frameCount++;
+                const currentTime = performance.now();
+                if (currentTime > this.lastTime + 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / (currentTime - this.lastTime));
+                    document.getElementById('fps-counter').textContent = this.fps;
+                    this.frameCount = 0;
+                    this.lastTime = currentTime;
+                }
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        
+        // Initialize the visualizer when the page loads
+        window.addEventListener('load', () => {
+            new ROS3DVisualizer();
+        });
+    </script>
+</body>
+</html>

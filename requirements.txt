@@ -1,0 +1,8 @@
+rclpy
+fastapi
+uvicorn[standard]
+websockets
+numpy
+sensor-msgs-py
+tf2-ros
+tf2-geometry-msgs
