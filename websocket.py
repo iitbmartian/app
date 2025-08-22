@@ -274,20 +274,70 @@ class ROS2DataCollector(Node):
         }
     
     def point_cloud_callback(self, msg: PointCloud2):
-        """Process point cloud data with decimation for performance"""
+        """Process point cloud data with proper coordinate transformation"""
         try:
             points = []
             colors = []
             point_step = 10
             count = 0
 
+            # Get the original frame ID from the message
+            source_frame = msg.header.frame_id
+            target_frame = "map"
+            
+            # Try to get transform from source frame to map frame
+            transform = None
+            try:
+                # Look up the transform
+                transform = self.tf_buffer.lookup_transform(
+                    target_frame,
+                    source_frame,
+                    msg.header.stamp,
+                    Duration(seconds=1.0)
+                )
+            except Exception as tf_error:
+                self.get_logger().warn(f'Could not transform from {source_frame} to {target_frame}: {tf_error}')
+                # If transform fails, we'll use the points as-is but with correct frame_id
+                target_frame = source_frame
+
             for point in pc2.read_points(msg, skip_nans=True):
                 if count % point_step == 0:
-                    # keep raw (x,y,z) in map frame
-                    points.extend([float(point[0]), float(point[1]), float(point[2])])
-                    colors.extend([1.0, 1.0, 1.0])  # default white
+                    if transform is not None:
+                        # Transform the point to map frame
+                        point_stamped = PointStamped()
+                        point_stamped.header.frame_id = source_frame
+                        point_stamped.header.stamp = msg.header.stamp
+                        point_stamped.point.x = float(point[0])
+                        point_stamped.point.y = float(point[1])
+                        point_stamped.point.z = float(point[2])
+                        
+                        try:
+                            transformed_point = tf2_geometry_msgs.do_transform_point(point_stamped, transform)
+                            points.extend([
+                                float(transformed_point.point.x), 
+                                float(transformed_point.point.y), 
+                                float(transformed_point.point.z)
+                            ])
+                        except Exception as transform_error:
+                            self.get_logger().warn(f'Error transforming point: {transform_error}')
+                            # Fall back to original coordinates
+                            points.extend([float(point[0]), float(point[1]), float(point[2])])
+                    else:
+                        # No transform available, use original coordinates
+                        points.extend([float(point[0]), float(point[1]), float(point[2])])
+                    
+                    # Handle colors if available in the point cloud
+                    if len(point) >= 4:  # Has color information
+                        # Assuming RGB packed as float
+                        rgb = int(point[3]) if not np.isnan(point[3]) else 0xFFFFFF
+                        r = ((rgb >> 16) & 0xFF) / 255.0
+                        g = ((rgb >> 8) & 0xFF) / 255.0
+                        b = (rgb & 0xFF) / 255.0
+                        colors.extend([r, g, b])
+                    else:
+                        colors.extend([1.0, 1.0, 1.0])  # default white
+                
                 count += 1
-
                 if len(points) > 30000:  # cap to ~10k points
                     break
 
@@ -295,7 +345,7 @@ class ROS2DataCollector(Node):
                 'type': 'point_cloud',
                 'points': points,
                 'colors': colors,
-                'frame_id': "map",  # explicitly keep it in map
+                'frame_id': target_frame,  # Use the actual target frame
                 'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
             }
 
