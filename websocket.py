@@ -424,13 +424,10 @@ class WebSocketManager:
             for key, value in self.ros_node.latest_data.items():
                 if value is not None and key != 'timestamp':
                     data_to_send[key] = value
-            print(f"Prepared data_to_send keys: {list(data_to_send.keys())}")
 
             if data_to_send:
                 # Compress large data
                 json_data = json.dumps(data_to_send, default=lambda o: float(o) if isinstance(o, np.generic) else o.tolist() if isinstance(o, np.ndarray) else str(o))
-                print(json_data)
-
                 # Send to all connected clients
                 disconnected_clients = []
                 for websocket in self.active_connections:

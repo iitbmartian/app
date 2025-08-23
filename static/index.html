@@ -195,7 +195,7 @@
         <!-- Control Panel -->
         <div id="control-panel">
             <div class="control-group">
-                <h3>Layers</h3>
+                <h3>Topics</h3>
                 <div class="control-row">
                     <label>Map</label>
                     <button class="toggle-btn" id="toggle-map">ON</button>
@@ -221,13 +221,13 @@
                     <button class="toggle-btn" id="toggle-markers">ON</button>
                 </div>
                 <div class="control-row">
-                    <label>Robot</label>
+                    <label>Robot Pose</label>
                     <button class="toggle-btn" id="toggle-robot">ON</button>
                 </div>
             </div>
 
             <div class="control-group">
-                <h3>Camera</h3>
+                <h3>View</h3>
                 <div class="control-row">
                     <button class="toggle-btn" id="reset-camera">Reset View</button>
                 </div>
@@ -317,49 +317,44 @@
                 this.connect();
                 this.animate();
             }
+
+            rosToThreePosition(pos) {
+                const v = new THREE.Vector3(pos.x, pos.y, pos.z);
+                v.applyAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+                return v;
+            }
+            rosToThreeQuaternion(ori) {
+                const q = new THREE.Quaternion(ori.x, ori.y, ori.z, ori.w);
+                const rosToThree = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+                q.multiply(rosToThree);
+                return q;
+            }
             
             init() {
-                // Setup renderer
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 this.renderer.setClearColor(0x0f0f23, 1);
                 this.renderer.shadowMap.enabled = true;
                 this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
                 document.getElementById('canvas-container').appendChild(this.renderer.domElement);
-                
-                // Setup camera
+
                 this.camera.position.set(10, 10, 10);
                 this.camera.lookAt(0, 0, 0);
-                
-                // Add camera controls (simplified orbit controls)
+
                 this.setupCameraControls();
-                
-                // Setup scene
                 this.setupScene();
-                
-                // Hide loading screen initially
                 document.getElementById('loading').style.display = 'block';
             }
-            
+
             setupScene() {
-                // Add ambient light
-                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-                this.scene.add(ambientLight);
-                
-                // Add directional light
+                this.scene.add(new THREE.AmbientLight(0x404040, 0.6));
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(10, 10, 5);
-                directionalLight.castShadow = true;
-                directionalLight.shadow.mapSize.width = 2048;
-                directionalLight.shadow.mapSize.height = 2048;
                 this.scene.add(directionalLight);
-                
-                // Add grid helper
+
                 const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
                 this.scene.add(gridHelper);
-                
-                // Add axes helper
-                const axesHelper = new THREE.AxesHelper(2);
-                this.scene.add(axesHelper);
+
+                this.scene.add(new THREE.AxesHelper(2));
             }
             
             setupCameraControls() {
@@ -372,11 +367,10 @@
                 
                 const updateCameraPosition = () => {
                     const target = this.followRobot ? this.robotPosition : new THREE.Vector3(0, 0, 0);
-                    
+                                    
                     this.camera.position.x = target.x + cameraDistance * Math.cos(cameraAngleY) * Math.cos(cameraAngleX);
-                    this.camera.position.y = target.y + cameraDistance * Math.sin(cameraAngleX);
-                    this.camera.position.z = target.z + cameraDistance * Math.sin(cameraAngleY) * Math.cos(cameraAngleX);
-                    
+                    this.camera.position.y = target.y + cameraDistance * Math.sin(cameraAngleY) * Math.cos(cameraAngleX);
+                    this.camera.position.z = target.z + cameraDistance * Math.sin(cameraAngleX);                    
                     this.camera.lookAt(target);
                 };
                 
@@ -522,7 +516,7 @@
                 if (data.robot_pose) this.updateRobotPose(data.robot_pose);
             }
             
-            updateMap(mapData) {
+           updateMap(mapData) {
                 // Remove existing map
                 if (this.mapMesh) {
                     this.scene.remove(this.mapMesh);
@@ -532,32 +526,69 @@
                 
                 const { width, height, resolution, origin, data } = mapData;
                 
-                // Create geometry for occupied cells
-                const geometry = new THREE.BufferGeometry();
-                const positions = [];
-                const colors = [];
+                // Create texture for the map - proper plane rendering
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                // Create image data
+                const imageData = ctx.createImageData(width, height);
                 
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
                         const index = y * width + x;
                         const value = data[index];
+                        const pixelIndex = (y * width + x) * 4;
                         
-                        if (value > 50) { // Occupied cell
-                            const worldX = origin.x + x * resolution;
-                            const worldY = origin.y + y * resolution;
-                            const worldZ = 0;
-                            
-                            // Create a small cube for each occupied cell
-                            this.addCube(positions, colors, worldX, worldY, worldZ, resolution * 0.8, [0.3, 0.3, 0.3]);
+                        if (value === -1) {
+                            // Unknown space - gray
+                            imageData.data[pixelIndex] = 128;     // R
+                            imageData.data[pixelIndex + 1] = 128; // G
+                            imageData.data[pixelIndex + 2] = 128; // B
+                            imageData.data[pixelIndex + 3] = 255; // A
+                        } else if (value > 50) {
+                            // Occupied space - black
+                            imageData.data[pixelIndex] = 0;       // R
+                            imageData.data[pixelIndex + 1] = 0;   // G
+                            imageData.data[pixelIndex + 2] = 0;   // B
+                            imageData.data[pixelIndex + 3] = 255; // A
+                        } else {
+                            // Free space - white
+                            imageData.data[pixelIndex] = 255;     // R
+                            imageData.data[pixelIndex + 1] = 255; // G
+                            imageData.data[pixelIndex + 2] = 255; // B
+                            imageData.data[pixelIndex + 3] = 255; // A
                         }
                     }
                 }
                 
-                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                ctx.putImageData(imageData, 0, 0);
                 
-                const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+                // Create texture from canvas
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.flipY = false; // Important for correct orientation
+                
+                // Create plane geometry - positioned correctly in ROS2 coordinate system
+                const geometry = new THREE.PlaneGeometry(width * resolution, height * resolution);
+                const material = new THREE.MeshLambertMaterial({ 
+                    map: texture, 
+                    transparent: true,
+                    opacity: 0.8
+                });
+                
                 this.mapMesh = new THREE.Mesh(geometry, material);
+                
+                // Position the map correctly using origin
+                this.mapMesh.position.set(
+                    origin.x + (width * resolution) / 2,
+                    origin.y + (height * resolution) / 2,
+                    0.001  // Slightly above ground plane
+                );
+                
+                // Rotate to align with ROS2 coordinate system (map is in XY plane)
+                this.mapMesh.rotation.x = -Math.PI / 2;
+                
                 this.mapMesh.visible = this.layers.map;
                 this.scene.add(this.mapMesh);
                 
@@ -575,111 +606,121 @@
                 
                 const { width, height, resolution, origin, data } = costmapData;
                 
-                const geometry = new THREE.BufferGeometry();
-                const positions = [];
-                const colors = [];
+                // Create texture for the costmap
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                // Create image data for costmap
+                const imageData = ctx.createImageData(width, height);
                 
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
                         const index = y * width + x;
                         const value = data[index];
+                        const pixelIndex = (y * width + x) * 4;
                         
-                        if (value > 0 && value < 255) { // Cost cell
-                            const worldX = origin.x + x * resolution;
-                            const worldY = origin.y + y * resolution;
-                            const worldZ = 0.01; // Slightly above map
-                            
+                        if (value > 0 && value < 255) {
+                            // Cost cell - color from green to red based on cost
                             const intensity = value / 254.0;
-                            this.addCube(positions, colors, worldX, worldY, worldZ, resolution * 0.6, [1.0, 1.0 - intensity, 0.0]);
+                            imageData.data[pixelIndex] = Math.floor(255 * intensity);      // R
+                            imageData.data[pixelIndex + 1] = Math.floor(255 * (1 - intensity)); // G
+                            imageData.data[pixelIndex + 2] = 0;                           // B
+                            imageData.data[pixelIndex + 3] = Math.floor(180 * intensity); // A (transparency based on cost)
+                        } else {
+                            // Transparent for free space
+                            imageData.data[pixelIndex] = 0;
+                            imageData.data[pixelIndex + 1] = 0;
+                            imageData.data[pixelIndex + 2] = 0;
+                            imageData.data[pixelIndex + 3] = 0;
                         }
                     }
                 }
                 
-                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                ctx.putImageData(imageData, 0, 0);
                 
-                const material = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+                // Create texture from canvas
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.flipY = false;
+                
+                // Create plane geometry for costmap
+                const geometry = new THREE.PlaneGeometry(width * resolution, height * resolution);
+                const material = new THREE.MeshLambertMaterial({ 
+                    map: texture, 
+                    transparent: true,
+                    opacity: 0.7
+                });
+                
                 this.costmapMesh = new THREE.Mesh(geometry, material);
+                
+                // Position the costmap slightly above the map
+                this.costmapMesh.position.set(
+                    origin.x + (width * resolution) / 2,
+                    origin.y + (height * resolution) / 2,
+                    0.002  // Slightly above map
+                );
+                
+                // Rotate to align with ROS2 coordinate system
+                this.costmapMesh.rotation.x = -Math.PI / 2;
+                
                 this.costmapMesh.visible = this.layers.costmap;
                 this.scene.add(this.costmapMesh);
             }
             
             updatePointCloud(cloudData) {
-                // Remove existing point cloud
                 if (this.pointCloudMesh) {
                     this.scene.remove(this.pointCloudMesh);
                     this.pointCloudMesh.geometry.dispose();
                     this.pointCloudMesh.material.dispose();
                 }
-                
                 const { points, colors } = cloudData;
-                
                 if (points.length === 0) return;
-                
+
+                // transform each point
+                const transformed = [];
+                for (let i = 0; i < points.length; i += 3) {
+                    const p = this.rosToThreePosition({x:points[i], y:points[i+1], z:points[i+2]});
+                    transformed.push(p.x, p.y, p.z);
+                }
+
                 const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(transformed, 3));
                 geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-                
-                const material = new THREE.PointsMaterial({ 
-                    size: 0.05, 
-                    vertexColors: true,
-                    sizeAttenuation: true
-                });
-                
+
+                const material = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, sizeAttenuation: true });
                 this.pointCloudMesh = new THREE.Points(geometry, material);
                 this.pointCloudMesh.visible = this.layers.pointcloud;
                 this.scene.add(this.pointCloudMesh);
-                
-                // Update status
+
                 document.getElementById('point-count').textContent = Math.floor(points.length / 3);
             }
             
             updateGlobalPath(pathData) {
-                // Remove existing global path
-                if (this.globalPathMesh) {
-                    this.scene.remove(this.globalPathMesh);
-                    this.globalPathMesh.geometry.dispose();
-                    this.globalPathMesh.material.dispose();
-                }
-                
+                if (this.globalPathMesh) { this.scene.remove(this.globalPathMesh); this.globalPathMesh.geometry.dispose(); this.globalPathMesh.material.dispose(); }
                 if (pathData.poses.length < 2) return;
-                
-                const points = pathData.poses.map(pose => 
-                    new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z + 0.1)
-                );
-                
+                const points = pathData.poses.map(pose => {
+                    const p = this.rosToThreePosition(pose.position);
+                    p.z += 0.1; return p;
+                });
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
-                
-                this.globalPathMesh = new THREE.Line(geometry, material);
-                this.globalPathMesh.visible = this.layers.globalpath;
-                this.scene.add(this.globalPathMesh);
-                
-                // Update status
+                this.globalPathMesh = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 }));
+                this.globalPathMesh.visible = this.layers.globalpath; this.scene.add(this.globalPathMesh);
                 document.getElementById('path-points').textContent = pathData.poses.length;
             }
             
             updateLocalPath(pathData) {
-                // Remove existing local path
-                if (this.localPathMesh) {
-                    this.scene.remove(this.localPathMesh);
-                    this.localPathMesh.geometry.dispose();
-                    this.localPathMesh.material.dispose();
-                }
-                
+                if (this.localPathMesh) { this.scene.remove(this.localPathMesh); this.localPathMesh.geometry.dispose(); this.localPathMesh.material.dispose(); }
                 if (pathData.poses.length < 2) return;
-                
-                const points = pathData.poses.map(pose => 
-                    new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z + 0.15)
-                );
-                
+                const points = pathData.poses.map(pose => {
+                    const p = this.rosToThreePosition(pose.position);
+                    p.z += 0.15; return p;
+                });
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                const material = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 });
-                
-                this.localPathMesh = new THREE.Line(geometry, material);
-                this.localPathMesh.visible = this.layers.localpath;
-                this.scene.add(this.localPathMesh);
+                this.localPathMesh = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 }));
+                this.localPathMesh.visible = this.layers.localpath; this.scene.add(this.localPathMesh);
             }
+
             
             updateMarkers(markersData) {
                 // Clear existing markers
@@ -703,70 +744,33 @@
                 document.getElementById('marker-count').textContent = this.markerObjects.size;
             }
             
-            createMarker(markerData) {
-                const { position, orientation, scale, color, type } = markerData;
-                
-                let geometry, material;
-                
-                switch (type) {
-                    case 1: // CUBE
-                        geometry = new THREE.BoxGeometry(scale.x, scale.y, scale.z);
-                        break;
-                    case 2: // SPHERE
-                        geometry = new THREE.SphereGeometry(scale.x / 2, 16, 12);
-                        break;
-                    case 3: // CYLINDER
-                        geometry = new THREE.CylinderGeometry(scale.x / 2, scale.x / 2, scale.z, 16);
-                        break;
-                    case 0: // ARROW
-                        geometry = new THREE.ConeGeometry(scale.x / 4, scale.z, 8);
-                        break;
-                    default:
-                        geometry = new THREE.BoxGeometry(scale.x, scale.y, scale.z);
+            createMarker(m) {
+                let geometry;
+                switch (m.type) {
+                    case 1: geometry = new THREE.BoxGeometry(m.scale.x, m.scale.y, m.scale.z); break;
+                    case 2: geometry = new THREE.SphereGeometry(m.scale.x/2,16,12); break;
+                    case 3: geometry = new THREE.CylinderGeometry(m.scale.x/2, m.scale.x/2, m.scale.z, 16); break;
+                    case 0: geometry = new THREE.ConeGeometry(m.scale.x/4, m.scale.z, 8); break;
+                    default: geometry = new THREE.BoxGeometry(m.scale.x, m.scale.y, m.scale.z);
                 }
-                
-                material = new THREE.MeshLambertMaterial({ 
-                    color: new THREE.Color(color.r, color.g, color.b),
-                    transparent: color.a < 1.0,
-                    opacity: color.a
+                const material = new THREE.MeshLambertMaterial({ 
+                    color:new THREE.Color(m.color.r,m.color.g,m.color.b), 
+                    transparent:m.color.a<1.0, opacity:m.color.a 
                 });
-                
                 const mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(position.x, position.y, position.z);
-                mesh.quaternion.set(orientation.x, orientation.y, orientation.z, orientation.w);
-                
+                mesh.position.copy(this.rosToThreePosition(m.position));
+                mesh.quaternion.copy(this.rosToThreeQuaternion(m.orientation));
                 return mesh;
             }
             
-            updateRobotPose(poseData) {
-                // Remove existing robot
-                if (this.robotMesh) {
-                    this.scene.remove(this.robotMesh);
-                    this.robotMesh.geometry.dispose();
-                    this.robotMesh.material.dispose();
-                }
-                
-                // Create simple robot representation
-                const geometry = new THREE.ConeGeometry(0.2, 0.4, 8);
-                const material = new THREE.MeshLambertMaterial({ color: 0xff0000 });
-                
-                this.robotMesh = new THREE.Mesh(geometry, material);
-                this.robotMesh.position.set(poseData.position.x, poseData.position.y, poseData.position.z + 0.2);
-                this.robotMesh.quaternion.set(
-                    poseData.orientation.x, 
-                    poseData.orientation.y, 
-                    poseData.orientation.z, 
-                    poseData.orientation.w
-                );
-                this.robotMesh.visible = this.layers.robot;
-                this.scene.add(this.robotMesh);
-                
-                // Update robot position for camera following
-                this.robotPosition.set(poseData.position.x, poseData.position.y, poseData.position.z);
-                
-                if (this.followRobot && this.updateCameraPosition) {
-                    this.updateCameraPosition();
-                }
+            updateRobotPose(p) {
+                if (this.robotMesh) { this.scene.remove(this.robotMesh); this.robotMesh.geometry.dispose(); this.robotMesh.material.dispose(); }
+                this.robotMesh = new THREE.Mesh(new THREE.ConeGeometry(0.2,0.4,8), new THREE.MeshLambertMaterial({ color:0xff0000 }));
+                this.robotMesh.position.copy(this.rosToThreePosition(p.position).add(new THREE.Vector3(0,0,0.2)));
+                this.robotMesh.quaternion.copy(this.rosToThreeQuaternion(p.orientation));
+                this.robotMesh.visible = this.layers.robot; this.scene.add(this.robotMesh);
+                this.robotPosition.copy(this.rosToThreePosition(p.position));
+                if (this.followRobot && this.updateCameraPosition) this.updateCameraPosition();
             }
             
             addCube(positions, colors, x, y, z, size, color) {
