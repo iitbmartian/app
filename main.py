@@ -5,147 +5,129 @@ import threading
 import signal
 import rclpy
 from rclpy.node import Node
-from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTabWidget, QTextEdit, QGroupBox, QPushButton, QHBoxLayout, QSplitter
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QWidget,
+    QTabWidget, QTextEdit, QGroupBox, QPushButton, QSplitter
+)
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QScreen, QFont
-from ros_utils import ImageSubscriber, CompressedImageSubscriber, determine_image_topic_type
-import threading
-from ros_utils import MessageSignals
+from ros_utils import (
+    ImageSubscriber, CompressedImageSubscriber, determine_image_topic_type,
+    MessageSignals, GenericSubscriber
+)
 from image_tab import ImageTab
 from pointcloud_tab import PointCloudTab
 from publisher_tab import PublisherTab
 from monitor_tab import MonitorTab
 from style import style
-from ros_utils import GenericSubscriber
+
 
 class MultiTabROS2Viewer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ROS2 Multi-Tab Viewer & Publisher")     
-        style()        
+        self.setWindowTitle("ROS2 Multi-Tab Viewer & Publisher")
+        style()
         self.setup_fullscreen()
+
         self.monitor_image_subscriber = None
         self.monitor_subscriber_thread = None
         self.node = None
         self.ros_thread = None
         self.subscribers = {}
         self.image_subscribers = {}
-        self.pointcloud_subscribers = {}  # New dedicated pointcloud subscribers
+        self.pointcloud_subscribers = {}
         self.signals = MessageSignals()
 
         self.setup_ui()
-
         self.init_ros2()
 
         self.ros_timer = QTimer()
         self.ros_timer.timeout.connect(self.spin_ros)
-        self.ros_timer.start(10)  
-
-
+        self.ros_timer.start(10)
 
     def setup_fullscreen(self):
         """Set up the window to be fullscreen but not larger than screen"""
         screen = QApplication.primaryScreen()
         if screen:
             screen_geometry = screen.availableGeometry()
-            print(f"Screen available geometry: {screen_geometry}")
-            print(f"Screen size: {screen_geometry.width()}x{screen_geometry.height()}")
             margin = 50
             width = screen_geometry.width() - margin
             height = screen_geometry.height() - margin
-            
             x = screen_geometry.x() + margin // 2
             y = screen_geometry.y() + margin // 2
-            
-            print(f"Setting window to: {width}x{height} at position ({x}, {y})")
-            
             self.setGeometry(x, y, width, height)
-            self.setFixedSize(width, height)  
-            
+            self.setFixedSize(width, height)
         else:
-            print("Could not detect screen geometry, using fallback size")
             self.setGeometry(50, 50, 1500, 900)
             self.setFixedSize(1500, 900)
 
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # Use a horizontal splitter for better space management
+
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        central_widget_layout = QVBoxLayout(central_widget)
-        central_widget_layout.setContentsMargins(15, 15, 15, 15)
-        central_widget_layout.setSpacing(10)
-        central_widget_layout.addWidget(main_splitter)
-        
-        # Left side: Main tabs
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.setContentsMargins(15, 15, 15, 15)
+        central_layout.setSpacing(10)
+        central_layout.addWidget(main_splitter)
+
+        # Left side
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 10, 0)
         left_layout.setSpacing(10)
-        
-        # Create tab widget
+
         self.tab_widget = QTabWidget()
-        
-        # Create tabs - pass self as main_window reference
         self.image_tab = ImageTab(self.signals, self, 5)
         self.pointcloud_tab = PointCloudTab(self.signals, self)
         self.publisher_tab = PublisherTab(self)
         self.monitor_tab = MonitorTab(self.signals, self)
-        
-        # Add tabs with better icons and spacing
-        self.tab_widget.addTab(self.image_tab, "📷  Images")
-        self.tab_widget.addTab(self.pointcloud_tab, "☁️  PointCloud")
-        self.tab_widget.addTab(self.publisher_tab, "📤  Publishers")
-        self.tab_widget.addTab(self.monitor_tab, "📊  Monitor")
-        
+
+        self.tab_widget.addTab(self.image_tab, "Images")
+        self.tab_widget.addTab(self.pointcloud_tab, "PointCloud")
+        self.tab_widget.addTab(self.publisher_tab, "Publishers")
+        self.tab_widget.addTab(self.monitor_tab, "Monitor")
+
         left_layout.addWidget(self.tab_widget)
-        
-        # Right side: Available topics (proportional width for fullscreen)
+
+        # Right side
         right_widget = QWidget()
         right_widget.setMinimumWidth(400)
-        right_widget.setMaximumWidth(600)  
+        right_widget.setMaximumWidth(600)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
-        
-        # Available topics display
-        topics_group = QGroupBox("🌐 Available Topics")
+
+        topics_group = QGroupBox("Available Topics")
         topics_layout = QVBoxLayout(topics_group)
         topics_layout.setContentsMargins(15, 20, 15, 15)
         topics_layout.setSpacing(12)
-        
-        # Refresh button at the top for better visibility
-        refresh_btn = QPushButton("🔄  Refresh Topics")
-        refresh_btn.setObjectName("refreshButton")  
+
+        refresh_btn = QPushButton("Refresh Topics")
+        refresh_btn.setObjectName("refreshButton")
         refresh_btn.clicked.connect(self.refresh_topics)
         refresh_btn.setToolTip("Refresh the list of available ROS2 topics")
         topics_layout.addWidget(refresh_btn)
-        
+
         self.topics_text = QTextEdit()
         self.topics_text.setReadOnly(True)
-        self.topics_text.setMinimumHeight(400)  
+        self.topics_text.setMinimumHeight(400)
         self.topics_text.setToolTip("List of available ROS2 topics organized by message type")
         topics_layout.addWidget(self.topics_text)
-        
+
         right_layout.addWidget(topics_group)
-        
-        # Add widgets to splitter
+
+        # Splitter setup
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
-        
-        # Set initial splitter sizes based on actual window width
-        # Get the current window width after setup
+
         current_width = self.width()
-        left_width = int(current_width * 0.75)  
-        right_width = int(current_width * 0.25)  
-        
+        left_width = int(current_width * 0.75)
+        right_width = int(current_width * 0.25)
         main_splitter.setSizes([left_width, right_width])
-        main_splitter.setStretchFactor(0, 1)  
-        main_splitter.setStretchFactor(1, 0) 
-        
-        # Enhanced status bar
-        self.statusBar().showMessage("🚀 ROS2 Multi-Tab Viewer Ready")
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 0)
+
+        self.statusBar().showMessage("ROS2 Multi-Tab Viewer Ready")
         self.statusBar().setStyleSheet("QStatusBar::item { border: none; }")
 
     def init_ros2(self):
@@ -153,89 +135,57 @@ class MultiTabROS2Viewer(QMainWindow):
             rclpy.init()
             self.node = Node('multi_tab_viewer_main')
 
-        self.ros_thread = threading.Thread(target=ros_init)
-        self.ros_thread.daemon = True
+        self.ros_thread = threading.Thread(target=ros_init, daemon=True)
         self.ros_thread.start()
         self.ros_thread.join()
-
         self.refresh_topics()
 
     def spin_ros(self):
         if self.node:
             rclpy.spin_once(self.node, timeout_sec=0.001)
 
-        for subscriber in self.image_subscribers.values():
-            if subscriber:
-                rclpy.spin_once(subscriber, timeout_sec=0.001)
-        
-        for subscriber in self.pointcloud_subscribers.values():
-            if subscriber:
-                rclpy.spin_once(subscriber, timeout_sec=0.001)
-                
-        for subscriber in self.subscribers.values():
+        for subscriber in list(self.image_subscribers.values()) + \
+                         list(self.pointcloud_subscribers.values()) + \
+                         list(self.subscribers.values()):
             if subscriber:
                 rclpy.spin_once(subscriber, timeout_sec=0.001)
 
     def refresh_topics(self):
         if not self.node:
             return
-
         try:
             topic_names_and_types = self.node.get_topic_names_and_types()
-            
             topics_by_type = {}
             for topic_name, topic_types in topic_names_and_types:
                 for topic_type in topic_types:
-                    if topic_type not in topics_by_type:
-                        topics_by_type[topic_type] = []
-                    topics_by_type[topic_type].append(topic_name)
+                    topics_by_type.setdefault(topic_type, []).append(topic_name)
 
-            # Enhanced topics display with better formatting
-            topics_text = "📋 Available Topics by Type:\n\n"
-            
-            # Add some visual indicators for different message types
-            type_icons = {
-                'sensor_msgs/msg/Image': '📷',
-                'sensor_msgs/msg/CompressedImage': '🖼️',
-                'sensor_msgs/msg/PointCloud2': '☁️',
-                'geometry_msgs/msg/Twist': '🎯',
-                'nav_msgs/msg/Odometry': '🧭',
-                'sensor_msgs/msg/LaserScan': '📡',
-                'std_msgs/msg/String': '📝',
-                'std_msgs/msg/Float64': '🔢',
-            }
-            
+            topics_text = "Available Topics by Type:\n\n"
             for topic_type in sorted(topics_by_type.keys()):
-                icon = type_icons.get(topic_type, '📂')
-                topics_text += f"{icon} {topic_type}:\n"
+                topics_text += f"{topic_type}:\n"
                 for topic in sorted(topics_by_type[topic_type]):
                     topics_text += f"   └─ {topic}\n"
                 topics_text += "\n"
 
             self.topics_text.setText(topics_text)
-            
-            # Combine regular and compressed image topics for the image tab
-            image_topics = []
-            image_topics.extend(topics_by_type.get('sensor_msgs/msg/Image', []))
-            image_topics.extend(topics_by_type.get('sensor_msgs/msg/CompressedImage', []))
-            
-            # Update all tabs with available topics
+
+            image_topics = topics_by_type.get('sensor_msgs/msg/Image', []) + \
+                           topics_by_type.get('sensor_msgs/msg/CompressedImage', [])
+
             self.image_tab.update_available_topics(sorted(image_topics))
             self.pointcloud_tab.update_available_topics(topics_by_type.get('sensor_msgs/msg/PointCloud2', []))
-            
-            # Update monitor tab with combined image topics (both regular and compressed)
             self.monitor_tab.update_available_topics(sorted(image_topics))
-            
-            # Update status bar with topic count and visual indicator
-            total_topics = len(set(topic for topics in topics_by_type.values() for topic in topics))
-            self.statusBar().showMessage(f"ROS2 Multi-Tab Viewer Ready • {total_topics} topics available • Last updated: {self.get_current_time()}")
+
+            total_topics = len(set(t for ts in topics_by_type.values() for t in ts))
+            self.statusBar().showMessage(
+                f"ROS2 Multi-Tab Viewer Ready • {total_topics} topics available • Last updated: {self.get_current_time()}"
+            )
 
         except Exception as e:
             self.topics_text.setText(f"Error getting topics: {str(e)}")
             self.statusBar().showMessage("Error refreshing topics")
 
     def get_current_time(self):
-        """Get current time for status updates"""
         from datetime import datetime
         return datetime.now().strftime("%H:%M:%S")
 
@@ -430,71 +380,46 @@ class MultiTabROS2Viewer(QMainWindow):
             return False
 
     def cleanup_and_exit(self):
-        """Clean up resources and exit the application"""
         print("\nShutting down ROS2 Multi-Tab Viewer...")
-        
-        # Stop all timers in publisher tab
         if hasattr(self, 'publisher_tab'):
             self.publisher_tab.cleanup()
-
-        if hasattr(self, 'monitor_image_subscriber') and self.monitor_image_subscriber:
+        if self.monitor_image_subscriber:
             self.monitor_image_subscriber.destroy_node()
-        for subscriber in self.image_subscribers.values():
-            if subscriber:
-                subscriber.destroy_node()
-
-        for subscriber in self.pointcloud_subscribers.values():
-            if subscriber:
-                subscriber.destroy_node()
-
-        for subscriber in self.subscribers.values():
-            if subscriber:
-                subscriber.destroy_node()
-
+        for s in list(self.image_subscribers.values()) + \
+                 list(self.pointcloud_subscribers.values()) + \
+                 list(self.subscribers.values()):
+            if s:
+                s.destroy_node()
         if self.node:
             self.node.destroy_node()
-
         if rclpy.ok():
             rclpy.shutdown()
-
-        # Close the application
         QApplication.quit()
 
     def closeEvent(self, event):
-        """Clean up when closing the application"""
         self.cleanup_and_exit()
         event.accept()
 
 
 def signal_handler(signum, frame, viewer):
-    """Handle Ctrl+C signal"""
     print(f"\nReceived signal {signum}")
     viewer.cleanup_and_exit()
 
 
 def main():
     app = QApplication(sys.argv)
-    
-    # Create the viewer
     viewer = MultiTabROS2Viewer()
-    
-    # Set up signal handlers for Ctrl+C
-    signal.signal(signal.SIGINT, lambda signum, frame: signal_handler(signum, frame, viewer))
-    signal.signal(signal.SIGTERM, lambda signum, frame: signal_handler(signum, frame, viewer))
-    
-    # Show the application
+    signal.signal(signal.SIGINT, lambda s, f: signal_handler(s, f, viewer))
+    signal.signal(signal.SIGTERM, lambda s, f: signal_handler(s, f, viewer))
     viewer.show()
 
     signal_timer = QTimer()
-    signal_timer.timeout.connect(lambda: None)  
-    signal_timer.start(100) 
+    signal_timer.timeout.connect(lambda: None)
+    signal_timer.start(100)
 
     try:
         sys.exit(app.exec())
-    except KeyboardInterrupt:
-        print("\nKeyboard interrupt received")
-        viewer.cleanup_and_exit()
-    except SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         viewer.cleanup_and_exit()
 
 

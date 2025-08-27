@@ -556,8 +556,8 @@ class PublisherTab(QWidget):
         generic_scroll.setWidgetResizable(True)
         generic_scroll.setWidget(QWidget())  # Placeholder
         
-        self.publisher_tabs.addTab(twist_scroll, "🎮 Twist/Velocity")
-        self.publisher_tabs.addTab(generic_scroll, "📝 Generic Messages")
+        self.publisher_tabs.addTab(twist_scroll, "Twist/Velocity")
+        self.publisher_tabs.addTab(generic_scroll, "Generic Messages")
         
         layout.addWidget(self.publisher_tabs)
     
